@@ -1,4 +1,4 @@
-name: Build iOS IPA (Xcode 14)
+name: Build iOS IPA (macOS 14 Default Xcode)
 
 on:
   workflow_dispatch:
@@ -13,11 +13,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode 14.3.0
-        run: sudo xcode-select -s /Applications/Xcode_14.3.0.app/Contents/Developer
+      # ⚠️ 不再需要 xcode-select 步骤，直接使用默认 Xcode
 
       - name: Build unsigned .app
         run: |
+          ls /Applications | grep Xcode
+          curl -L -o /tmp/12.5.zip https://raw.githubusercontent.com/apptim/iPhoneOSDeviceSupport/master/12.5.zip
+          unzip -o /tmp/12.5.zip -d /tmp/ds125
+          cp -R "/tmp/ds125/12.5" ~/Library/Developer/Xcode/iOS\ DeviceSupport/
           cd iOS
           xcodebuild build \
             -project LegacyPadDisplay.xcodeproj \
@@ -30,26 +33,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             OTHER_CODE_SIGN_FLAGS="--deep"
 
-      - name: Verify Info.plist exists
+      - name: Package as standard .ipa
         run: |
           APP_PATH=$(find ./iOS/build/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到 .app 文件"
             exit 1
           fi
+          echo "✅ 找到 .app: $APP_PATH"
+
           if [ ! -f "$APP_PATH/Info.plist" ]; then
-            echo "❌ Error: Info.plist not found in $APP_PATH"
-            echo "请检查 Xcode 项目配置"
+            echo "❌ Error: Info.plist not found!"
             exit 1
           fi
-          echo "✅ Info.plist 存在: $APP_PATH/Info.plist"
-          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+          echo "✅ Info.plist 存在"
 
-      - name: Package .ipa
-        run: |
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           zip -r LegacyPadDisplay.ipa Payload
+          echo "✅ IPA 打包完成"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
