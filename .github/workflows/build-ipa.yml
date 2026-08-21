@@ -6,7 +6,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14   # 必须使用 macOS 13 镜像
+    runs-on: macos-15-intel   # 必须使用 macOS 13 镜像
     
     env:
       DEVELOPER_DIR: /Applications/Xcode_14.3.0.app/Contents/Developer
