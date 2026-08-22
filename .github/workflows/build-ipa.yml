@@ -1,60 +1,93 @@
-name: Build iOS IPA (macOS 14 Default Xcode)
+name: Build iOS 12 unsigned IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  build-ios:
+  build:
     runs-on: macos-14
 
     steps:
-      - name: Checkout code
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # ⚠️ 不再需要 xcode-select 步骤，直接使用默认 Xcode
-
-      - name: Build unsigned .app
+      - name: Select Xcode 15.4
         run: |
-          ls /Applications | grep Xcode
-          curl -L -o /tmp/12.5.zip https://raw.githubusercontent.com/apptim/iPhoneOSDeviceSupport/master/12.5.zip
-          unzip -o /tmp/12.5.zip -d /tmp/ds125
-          cp -R "/tmp/ds125/12.5" ~/Library/Developer/Xcode/iOS\ DeviceSupport/
-          cd iOS
-          xcodebuild build \
-            -project LegacyPadDisplay.xcodeproj \
+          sudo xcode-select \
+            --switch /Applications/Xcode_15.4.app/Contents/Developer
+
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -project iOS/LegacyPadDisplay.xcodeproj \
             -scheme LegacyPadDisplay \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath ./build \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/build" \
             CODE_SIGNING_ALLOWED=NO \
-            OTHER_CODE_SIGN_FLAGS="--deep"
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            clean build
 
-      - name: Package as standard .ipa
+      - name: Locate built app
+        id: app
+        shell: bash
         run: |
-          APP_PATH=$(find ./iOS/build/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
+          APP_PATH="$(
+            find "$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos" \
+              -maxdepth 1 \
+              -type d \
+              -name '*.app' \
+              -print \
+              -quit
+          )"
+
           if [ -z "$APP_PATH" ]; then
-            echo "❌ 未找到 .app 文件"
+            echo "No .app bundle was produced"
+            find "$GITHUB_WORKSPACE/build/Build/Products" -maxdepth 3 -print
             exit 1
           fi
-          echo "✅ 找到 .app: $APP_PATH"
 
-          if [ ! -f "$APP_PATH/Info.plist" ]; then
-            echo "❌ Error: Info.plist not found!"
-            exit 1
-          fi
-          echo "✅ Info.plist 存在"
+          echo "Found app: $APP_PATH"
+          echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          zip -r LegacyPadDisplay.ipa Payload
-          echo "✅ IPA 打包完成"
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ipa/Payload"
 
-      - name: Upload IPA artifact
+          APP_PATH="${{ steps.app.outputs.path }}"
+          APP_NAME="$(basename "$APP_PATH")"
+
+          ditto \
+            "$APP_PATH" \
+            "$GITHUB_WORKSPACE/ipa/Payload/$APP_NAME"
+
+          cd "$GITHUB_WORKSPACE/ipa"
+          zip -qry \
+            "$GITHUB_WORKSPACE/LegacyPadDisplay-iOS12-unsigned.ipa" \
+            Payload
+
+          unzip -l \
+            "$GITHUB_WORKSPACE/LegacyPadDisplay-iOS12-unsigned.ipa"
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: LegacyPadDisplay-unsigned
-          path: LegacyPadDisplay.ipa
+          name: LegacyPadDisplay-iOS12-unsigned
+          path: LegacyPadDisplay-iOS12-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
